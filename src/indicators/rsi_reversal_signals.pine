@@ -1,0 +1,53 @@
+//@version=6
+//@description=这是一个基于RSI超买超卖和影线形态的交易信号指标
+indicator("RSI超买超卖+影线反转信号", overlay=true)
+
+// === 输入参数设置 ===
+//@variable RSI计算周期
+lengthInput = input.int(14, "RSI周期", minval=1)
+//@variable RSI超卖阈值
+rsiOversoldInput = input.float(30, "RSI超卖阈值", minval=0, maxval=100)
+//@variable RSI超买阈值
+rsiOverboughtInput = input.float(70, "RSI超买阈值", minval=0, maxval=100)
+//@variable 影线比例阈值
+shadowInput = input.float(0.6, "影线比例阈值", minval=0.1, maxval=1.0, tooltip="影线长度占整个K线长度的最小比例")
+
+// === RSI计算 ===
+rsiValue = ta.rsi(close, lengthInput)
+
+// === K线形态分析 ===
+bodyHighPrice = math.max(open, close)
+bodyLowPrice = math.min(open, close)
+upperShadowLength = high - bodyHighPrice
+lowerShadowLength = bodyLowPrice - low
+bodySizeLength = math.abs(close - open)
+candleSizeLength = high - low
+
+// === 影线判断 ===
+hasLongUpperShadow = upperShadowLength > (candleSizeLength * shadowInput)
+hasLongLowerShadow = lowerShadowLength > (candleSizeLength * shadowInput)
+
+// === 吞没形态判断 ===
+prevBodyHighPrice = math.max(open[1], close[1])
+prevBodyLowPrice = math.min(open[1], close[1])
+prevBodySizeLength = math.abs(close[1] - open[1])
+isBullishEngulfing = close > open and open < close[1] and close > open[1] and bodySizeLength > prevBodySizeLength
+isBearishEngulfing = close < open and open > close[1] and close < open[1] and bodySizeLength > prevBodySizeLength
+
+// === 信号生成 ===
+longSignal = rsiValue < rsiOversoldInput and (hasLongLowerShadow or isBullishEngulfing)
+shortSignal = rsiValue > rsiOverboughtInput and (hasLongUpperShadow or isBearishEngulfing)
+
+// === 信号绘制 ===
+plotshape(longSignal, title="做多信号", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal)
+plotshape(shortSignal, title="做空信号", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal)
+
+// === RSI数值显示 ===
+var table infoTable = table.new(position.top_right, 2, 1)
+table.cell(infoTable, 0, 0, "RSI: " + str.tostring(rsiValue, "#.##"), bgcolor=color.new(color.blue, 70))
+table.cell(infoTable, 1, 0, "信号: " + (longSignal ? "做多" : shortSignal ? "做空" : "-"), bgcolor=color.new(color.blue, 70))
+
+// === 警报设置 ===
+//@strategy_alert_message {{ticker}} - RSI反转信号: {{strategy.order.alert_message}}
+alertcondition(longSignal, "做多信号", "RSI超卖 + 反转形态，建议做多。\n当前RSI: {{plot('RSI')}}，价格: {{close}}")
+alertcondition(shortSignal, "做空信号", "RSI超买 + 反转形态，建议做空。\n当前RSI: {{plot('RSI')}}，价格: {{close}}")

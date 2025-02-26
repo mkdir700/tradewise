@@ -1,0 +1,30 @@
+//@version=6
+indicator("MA50趋势信号", overlay=true)
+
+// 计算MA50
+ma50 = ta.sma(close, 50)
+
+// 判断穿越信号
+crossUpMA = ta.crossover(close, ma50)
+crossDownMA = ta.crossunder(close, ma50)
+
+// 判断接触MA50
+touchMA = math.abs(close - ma50) <= (ta.atr(14) * 0.05)  // 使用ATR的5%作为接触阈值
+
+// 在穿越点绘制标记
+plotshape(crossUpMA, "上穿信号", style=shape.circle, location=location.belowbar, color=color.green, size=size.small)
+plotshape(crossDownMA, "下穿信号", style=shape.circle, location=location.abovebar, color=color.red, size=size.small)
+
+// 显示趋势状态
+var isBullTrend = false
+if (crossUpMA)
+    isBullTrend := true
+if (crossDownMA)
+    isBullTrend := false
+
+plotchar(isBullTrend, "趋势状态", "•", location.top, isBullTrend ? color.green : color.red, size=size.tiny)
+
+// 设置警报条件
+alertcondition(crossUpMA, title="MA50上穿提醒", message="价格上穿MA50，可能开始上涨趋势")
+alertcondition(crossDownMA, title="MA50下穿提醒", message="价格下穿MA50，可能开始下跌趋势")
+alertcondition(touchMA, title="MA50接触提醒", message="价格接触到MA50，请注意可能的趋势变化")
