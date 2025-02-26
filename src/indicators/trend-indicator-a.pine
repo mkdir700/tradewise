@@ -1,0 +1,244 @@
+//@version=5
+//
+//╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+//║ 作者    | DZIV (dzi_v_) | mkdir700
+//║ 许可证  | CC BY-NC-SA 4.0 : https://creativecommons.org/licenses/by-nc-sa/4.0/
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ 更新日志:
+//║ 2021.04.15 > A-V1.0 -首次发布
+//║ 2021.05.05 > A-V2.0 -添加高点和低点的计算和显示
+//║             -脚本优化
+//║ 2021.05.06 > A-V2.1 -在研究中添加分辨率自定义
+//║ 2021.10.18 > A-V2.2 -添加"均线类型"自定义选项
+//║             -将"颜色方案"功能替换为"基础颜色输入"功能（更友好）
+//║             -将标题名称改为英文以便更好理解
+//║             -脚本优化
+//║ 2024.04.21 > A-V2.3 -升级到 PineScript 版本 5
+//║             -重大脚本重构和优化
+//║             -移除双重平滑以减少滞后
+//║             -在"均线类型"输入中添加 ALMA, HMA 和 ZLEMA
+//║ 2024.11.14 > A-V2.4 -添加报警条件
+//║             -添加报警条件
+//╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+//
+//╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+//║ 设置：
+indicator('Trend Indicator A (v2.4)', 'Trend Indicator A (v2.4)', true)
+
+ma_type = input.string('EMA', 'MA Type', ['ALMA','HMA','SMA','SWMA','VWMA','WMA','ZLEMA','EMA'], group = 'Setup')
+ma_period = input.int(9, 'MA Period (Length)', 1, group='Setup')
+
+alma_offset = input.float(0.85, 'ALMA Shift', 0, 1, 0.05, group = 'Setup (ALMA)')
+alma_sigma = input.int(6, 'ALMA Deviation', 1, step = 1, group = 'Setup (ALMA)')
+
+show_line_1(x) =>
+    input.bool(true, 'Show Close line', group = 'On/Off') ? x : na
+show_line_2(x) =>
+    input.bool(false, 'Show High/Low lines', group = 'On/Off') ? x : na
+show_fill(x) =>
+    input.bool(true, 'Show fill', group = 'On/Off') ? x : na
+
+use_rsi = input.bool(true, "使用RSI确认", group="Momentum")
+rsi_length = input.int(14, "RSI周期", minval=1, group="Momentum")
+rsi_overbought = input.int(70, "RSI超买值", group="Momentum")
+rsi_oversold = input.int(30, "RSI超卖值", group="Momentum")
+
+// 如果当前时间框架是 5 分钟，那么高时间框架分别是，15 分钟，1 小时，4 小时
+// 如果当前时间框架是 15 分钟，那么高时间框架分别是，1 小时，4 小时，日线
+
+// 获取当前时间框架
+current_tf = timeframe.period
+
+// 根据当前时间框架确定高时间框架
+// 当前时间框架为 5 分钟，高时间框架为 15 分钟
+htf = switch current_tf
+    "5" => "15"
+    "15" => "60"
+    "60" => "240"
+    "240" => "1D"
+
+// 高时间框架为 15 分钟，更高时间框架为 60 分钟
+htf2 = switch htf
+    "5" => "15"
+    "15" => "60"
+    "60" => "240"
+    "240" => "1D"
+
+// 更高时间框架为 60 分钟，更高时间框架为 240 分钟
+htf3 = switch htf2
+    "5" => "15"
+    "15" => "60"
+    "60" => "240"
+    "240" => "1D"
+
+// htf = input.timeframe("240", "高时间周期", group="Multi-Timeframe")
+
+use_volume = input.bool(true, "使用成交量确认", group="Volume")
+vol_ma_len = input.int(20, "成交量MA周期", group="Volume")
+
+min_trend_duration = input.int(3, "反转信号最小趋势持续周期", minval=1, group="趋势反转设置")
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ Calculations :
+f(x) =>
+    switch ma_type
+        'ALMA' => ta.alma(x, ma_period, alma_offset, alma_sigma)
+        'HMA' => ta.hma(x, ma_period)
+        'SMA' => ta.sma(x, ma_period)
+        'SWMA' => ta.swma(x)
+        'VWMA' => ta.vwma(x, ma_period)
+        'WMA' => ta.vwma(x, ma_period)
+        'ZLEMA' => ta.ema(x + x - x[math.floor((ma_period - 1) / 2)], ma_period)
+        => ta.ema(x, ma_period)
+
+ma_heikinashi_open = f(request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, open))
+ma_heikinashi_close = f(request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close))
+ma_heikinashi_high = f(request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, high))
+ma_heikinashi_low = f(request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, low))
+
+trend = 100 * (ma_heikinashi_close - ma_heikinashi_open) / (ma_heikinashi_high - ma_heikinashi_low)
+
+// 计算趋势持续周期
+var trend_duration = 0
+trend_duration := trend > 0 and trend[1] > 0 ? trend_duration + 1 : trend < 0 and trend[1] < 0 ? trend_duration + 1 : 0
+
+// 计算前一个趋势的持续时间
+var prev_trend_duration = 0
+if (math.sign(trend) != math.sign(trend[1]))
+    prev_trend_duration := trend_duration[1]
+    trend_duration := 0
+else
+    trend_duration := trend_duration + 1
+
+// 计算有效反转信号
+is_valid_reversal = prev_trend_duration >= min_trend_duration and math.sign(trend) != math.sign(trend[1])
+
+// 计算多个时间周期的趋势
+htf_trend = request.security(syminfo.tickerid, htf, trend)
+trend_align = trend * htf_trend > 0  // 趋势是否与更高时间周期一致
+htf1_trend = request.security(syminfo.tickerid, htf, trend)
+htf2_trend = request.security(syminfo.tickerid, htf2, trend)
+htf3_trend = request.security(syminfo.tickerid, htf3, trend)
+
+// 定义颜色
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ Colors :
+color_positive = input.color(color.new(#26A69A, 0), 'Positive color (Bullish)', group = 'Colors')
+color_negative = input.color(color.new(#EF5350, 0), 'Negative color (Bearish)', group = 'Colors')
+color_neutral = input.color(color.new(#808080, 0), 'Neutral color', group = 'Colors')
+
+// 趋势强度区间颜色
+color_strong_bull = input.color(color.new(#00FF00, 0), '强势多头颜色', group = 'Colors')
+color_strong_bear = input.color(color.new(#FF0000, 0), '强势空头颜色', group = 'Colors')
+
+// 根据趋势强度调整颜色
+color_trend = trend > 50 ? color_strong_bull : trend < -50 ? color_strong_bear : trend > 0 ? color_positive : color_negative
+
+rsi = ta.rsi(close, rsi_length)
+trend_confirmed = use_rsi ? (trend > 0 and rsi > 50) or (trend < 0 and rsi < 50) : true
+
+
+vol_ma = ta.sma(volume, vol_ma_len)
+vol_confirmed = use_volume ? volume > vol_ma : true
+is_valid_trend = trend_confirmed and vol_confirmed
+
+atr = ta.atr(14)
+stop_loss = trend > 0 ? low - atr * 2 : high + atr * 2
+plot(stop_loss, "移动止损线", color = trend > 0 ? color.red : color.green, style=plot.style_circles)
+
+// 识别震荡区间
+volatility = ta.atr(14) / close * 100  // 计算波动率
+is_choppy = volatility < input.float(1.0, "震荡区间波动率阈值", group="震荡过滤")
+
+// 添加布林带来识别震荡
+bb_length = input.int(20, "布林带周期", group="震荡过滤")
+bb_mult = input.float(2.0, "布林带标准差倍数", group="震荡过滤")
+[bb_middle, bb_upper, bb_lower] = ta.bb(close, bb_length, bb_mult)
+price_in_bb = close >= bb_lower and close <= bb_upper
+is_ranging = price_in_bb and math.abs(trend) < input.float(30, "震荡趋势阈值", group="震荡过滤")
+
+// 计算趋势强度
+trend_strength = math.abs(trend)
+min_trend_strength = input.float(20, "最小趋势强度", group="趋势过滤")
+trend_strength_confirmed = trend_strength > min_trend_strength
+
+// 添加强力反转信号（趋势持续时间更长的反转）
+strong_reversal_duration = input.int(10, "强力反转最小趋势持续周期", minval=5, group="趋势反转设置")
+is_strong_reversal = prev_trend_duration >= strong_reversal_duration and math.sign(trend) != math.sign(trend[1])
+
+// 计算趋势一致性
+trend_consistency = math.abs(ta.correlation(close, time, 20))
+min_consistency = input.float(0.7, "最小趋势一致性", 0.1, 1.0, group="趋势过滤")
+consistency_confirmed = trend_consistency > min_consistency
+
+// 更新趋势确认条件
+is_valid_trend := trend_confirmed and vol_confirmed and trend_strength_confirmed and 
+                 consistency_confirmed and not is_ranging
+
+
+// 趋势一致性检查
+trend_alignment_score = ((math.sign(trend) == math.sign(htf1_trend) ? 1 : 0) + (math.sign(trend) == math.sign(htf2_trend) ? 1 : 0) + (math.sign(trend) == math.sign(htf3_trend) ? 1 : 0)) / 3.0
+
+min_alignment = input.float(0.66, "最小趋势一致性比例", 0.1, 1.0, group="多周期确认")
+multi_timeframe_confirmed = trend_alignment_score >= min_alignment
+
+// 计算标签位置
+label_offset = ta.atr(14) * 2  // 使用ATR来动态调整标签位置
+label_y_pos = trend > 0 ? high + label_offset : low - label_offset  // 根据趋势方向放置在价格上方或下方
+
+// 创建标签
+var trend_label = label.new(na, na, na)
+label.delete(trend_label)
+trend_label := label.new(x=bar_index, y=label_y_pos, text="趋势持续: " + str.tostring(trend_duration) + "周期\n" + "前趋势持续: " + str.tostring(prev_trend_duration) + "周期\n" + "趋势值: " + str.tostring(math.round(trend, 2)) + "\n" + "趋势强度: " + str.tostring(math.round(trend_strength, 2)) + "\n" + (is_ranging ? "震荡行情" : "趋势行情") + "\n" + "多周期一致性: " + str.tostring(math.round(trend_alignment_score * 100, 0)) + "%", color=is_valid_trend ? color_trend : color.new(color_neutral, 0), textcolor=color.white, style=trend > 0 ? label.style_label_down : label.style_label_up, size=size.small)
+
+
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ 报警条件：
+alertcondition(trend > 0 and trend[1] <= 0, title='趋势转为上涨', message='{{ticker}} 价格趋势转为上涨')
+alertcondition(trend < 0 and trend[1] >= 0, title='趋势转为下跌', message='{{ticker}} 价格趋势转为下跌')
+
+// 强势上涨报警
+alertcondition(trend > 50 and trend[1] <= 50, title='强势上涨', message='{{ticker}} 价格呈现强势上涨趋势')
+    
+// 强势下跌报警
+alertcondition(trend < -50 and trend[1] >= -50, title='强势下跌', message='{{ticker}} 价格呈现强势下跌趋势')
+
+// 强势上涨结束
+alertcondition(trend > 50 and trend[1] <= 50, title='强势上涨结束', message='{{ticker}} 价格强势上涨趋势结束')
+
+// 强势下跌结束
+alertcondition(trend < -50 and trend[1] >= -50, title='强势下跌结束', message='{{ticker}} 价格强势下跌趋势结束')
+
+// 趋势强度变化报警
+alertcondition(math.abs(trend - trend[1]) > 20, title='趋势强度显著变化', message='{{ticker}} 趋势强度发生显著变化')
+
+// 趋势反转
+alertcondition(is_valid_reversal, title='有效趋势反转', message='{{ticker}} 警告：趋势发生反转！前趋势持续: {{plot("prev_trend_duration")}} 根K线, 当前趋势值: {{plot("trend")}}')
+
+// 趋势与RSI背离报警
+alertcondition(trend > 0 and rsi < rsi_oversold, title="趋势与RSI背离(超卖)", message='{{ticker}} 趋势向上但RSI处于超卖区间，可能存在反转风险')
+
+// 趋势持续时间报警
+alertcondition(trend_duration > 20, title="趋势持续过长", message='{{ticker}} 当前趋势已持续{{plot("trend_duration")}}个周期，注意可能的反转')
+
+// 添加高时间周期趋势背离警报
+alertcondition(not trend_align and trend_align[1], title="高时间周期趋势背离", message='{{ticker}} 当前趋势与高时间周期趋势发生背离')
+
+// 强力反转信号
+alertcondition(is_strong_reversal, title='强力趋势反转', message='{{ticker}} 警告：发生强力趋势反转！前趋势持续: {{plot("prev_trend_duration")}} 根K线, 当前趋势值: {{plot("trend")}}')
+
+
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ Plot :
+plot_open = plot(ma_heikinashi_open, 'Open line', na)
+plot_close = plot(ma_heikinashi_close, 'Close line', show_line_1(color_trend), 2)
+plot_high = plot(ma_heikinashi_high, 'High line', show_line_2(color_neutral))
+plot_low = plot(ma_heikinashi_low, 'Low line', show_line_2(color_neutral))
+
+plot_highest = plot(math.max(ma_heikinashi_open, ma_heikinashi_close),'Highest Body line', na)
+plot_lowest = plot(math.min(ma_heikinashi_open, ma_heikinashi_close),'Lowest Body line', na)
+//╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+//║ Fill :
+fill(plot_open, plot_close, color.new(color_trend,50), 'Open/Close Cloud')
+fill(plot_high, plot_highest, show_fill(color.new(color_neutral,87.5)), title = 'High Cloud')
+fill(plot_lowest, plot_low, show_fill(color.new(color_neutral,87.5)), title = 'Low Cloud')
+//╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝

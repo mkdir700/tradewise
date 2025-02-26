@@ -1,0 +1,44 @@
+//@version=5
+indicator("Volume Multiplier Alert", overlay=true)
+
+// 输入参数
+vol_mult = input.int(2, title="交易量倍数", minval=1)
+price_mult = input.float(2.0, title="价格涨幅倍数", minval=1.0, step=0.1)
+ma_len = input.int(20, title="移动平均期间", minval=1)
+lookback = input.int(5, title="对比周期", minval=1, tooltip="用于计算平均值的K线数量")
+show_ma = input.bool(true, title="显示成交量均线")
+alert_message = input.string("交易量突增警报!", title="警报消息")
+
+// 添加额外的过滤条件
+min_volume = input.int(1000, title="最小交易量", minval=0)
+percent_above_ma = input.float(20, title="高于均线百分比", minval=0) / 100
+
+// 获取当前和前几根K线的平均交易量
+currentVolume = volume
+previousAvgVolume = ta.sma(volume[1], lookback)  // 使用前几根K线的平均值
+
+// 计算价格变化
+currentChange = math.abs(close - open)  // 当前K线的价格变化幅度
+previousChange = math.abs(close[1] - open[1])  // 前一根K线的价格变化幅度
+
+// 添加成交量移动平均线
+vol_ma = ta.sma(volume, ma_len)
+is_vol_above_ma = currentVolume > vol_ma
+
+// 检查交易量和价格变化条件
+isVolumeMultiplied = currentVolume >= previousAvgVolume * vol_mult and is_vol_above_ma and currentVolume > min_volume and currentVolume >= vol_ma * (1 + percent_above_ma)
+
+isPriceMultiplied = currentChange >= previousChange * price_mult
+
+// 综合判断条件
+isSignal = isVolumeMultiplied and isPriceMultiplied
+
+// 在满足条件时绘制标记
+plotshape(series=isSignal, location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small, title="Volume & Price Multiplier Alert")
+
+// 在标签中显示更多信息
+if isSignal
+    label.new(bar_index, high, text="Volume x" + str.tostring(vol_mult) + "\nPrice Change x" + str.tostring(price_mult) + "\n当前量: " + str.tostring(currentVolume) + "\n均线量: " + str.tostring(vol_ma) + "\n当前幅度: " + str.tostring(currentChange) + "\n前期幅度: " + str.tostring(previousChange), color=color.red, textcolor=color.white, style=label.style_label_down)
+
+// 添加警报条件
+alertcondition(isSignal, title="交易量和价格倍数警报", message="交易量和价格变化突增警报！")

@@ -1,0 +1,32 @@
+//@version=5
+indicator("趋势斜率加速度指标", overlay=true)
+
+// 输入参数
+ma_len = input.int(20, "移动平均期间", minval=1)
+slope_threshold = input.float(0.0001, "斜率阈值", step=0.0001)
+acc_threshold = input.float(0.00005, "加速度阈值", step=0.00001)
+
+// 计算移动平均线
+ma = ta.ema(close, ma_len)
+
+// 计算斜率和加速度
+slope = ma - ma[1]
+acceleration = slope - slope[1]
+
+// 判断趋势状态
+strong_uptrend = slope > slope_threshold and acceleration > acc_threshold
+strong_downtrend = slope < -slope_threshold and acceleration < -acc_threshold
+
+// 绘制背景色
+bgcolor(strong_uptrend ? color.new(color.green, 90) : strong_downtrend ? color.new(color.red, 90) : na)
+
+// 在K线上方/下方绘制标记
+plotshape(strong_uptrend, "强势上涨", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(strong_downtrend, "强势下跌", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// 绘制移动平均线
+plot(ma, "EMA", color=color.blue, linewidth=2)
+
+// 警报条件
+alertcondition(strong_uptrend, "强势上涨警报", "价格出现快速上涨")
+alertcondition(strong_downtrend, "强势下跌警报", "价格出现快速下跌")

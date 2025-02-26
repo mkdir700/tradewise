@@ -1,0 +1,83 @@
+//@version=5
+indicator("Multi-Timeframe Double Star Detector", overlay=true)
+
+// 时间框架设置
+timeframe_5 = input.bool(true, "5分钟", inline="tf")
+timeframe_15 = input.bool(true, "15分钟", inline="tf")
+timeframe_30 = input.bool(true, "30分钟", inline="tf")
+timeframe_60 = input.bool(true, "60分钟", inline="tf")
+timeframe_240 = input.bool(true, "4小时", inline="tf")
+timeframe_D = input.bool(true, "日线", inline="tf")
+timeframe_W = input.bool(true, "周线", inline="tf")
+
+// K线实体占比阈值
+bodyPercentageThreshold = input.float(2, "K线实体占比阈值", minval=1, maxval=100, step=1)
+
+// 检测双星形态的函数
+detectStar() =>
+    bodyPercentage = math.abs(close - open) / math.abs(high - low) * 100
+    isSmallBody = bodyPercentage < bodyPercentageThreshold
+    
+    // 黄昏之星：小实体，且位于高位
+    eveningStar = isSmallBody and high > high[1]
+    
+    // 启明星：小实体，且位于低位
+    morningStar = isSmallBody and low < low[1]
+    
+    [eveningStar, morningStar]
+
+// 在所有时间框架上检测
+var string[] alerts = array.new_string()
+array.clear(alerts)
+
+// 获取各个时间框架的信号
+[eveningStar5, morningStar5] = request.security(syminfo.tickerid, "5", detectStar())
+[eveningStar15, morningStar15] = request.security(syminfo.tickerid, "15", detectStar())
+[eveningStar30, morningStar30] = request.security(syminfo.tickerid, "30", detectStar())
+[eveningStar60, morningStar60] = request.security(syminfo.tickerid, "60", detectStar())
+[eveningStar240, morningStar240] = request.security(syminfo.tickerid, "240", detectStar())
+[eveningStarD, morningStarD] = request.security(syminfo.tickerid, "D", detectStar())
+[eveningStarW, morningStarW] = request.security(syminfo.tickerid, "W", detectStar())
+
+// 收集警报
+if timeframe_5 and eveningStar5
+    array.push(alerts, "5分钟黄昏之星")
+if timeframe_5 and morningStar5
+    array.push(alerts, "5分钟启明星")
+
+if timeframe_15 and eveningStar15
+    array.push(alerts, "15分钟黄昏之星")
+if timeframe_15 and morningStar15
+    array.push(alerts, "15分钟启明星")
+
+if timeframe_30 and eveningStar30
+    array.push(alerts, "30分钟黄昏之星")
+if timeframe_30 and morningStar30
+    array.push(alerts, "30分钟启明星")
+
+if timeframe_60 and eveningStar60
+    array.push(alerts, "60分钟黄昏之星")
+if timeframe_60 and morningStar60
+    array.push(alerts, "60分钟启明星")
+
+if timeframe_240 and eveningStar240
+    array.push(alerts, "4小时黄昏之星")
+if timeframe_240 and morningStar240
+    array.push(alerts, "4小时启明星")
+
+if timeframe_D and eveningStarD
+    array.push(alerts, "日线黄昏之星")
+if timeframe_D and morningStarD
+    array.push(alerts, "日线启明星")
+
+if timeframe_W and eveningStarW
+    array.push(alerts, "周线黄昏之星")
+if timeframe_W and morningStarW
+    array.push(alerts, "周线启明星")
+
+// 绘制信号
+if array.size(alerts) > 0
+    label.new(bar_index, high, array.join(alerts, "\n"), color=color.new(color.blue, 80), textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// 警报条件
+alertcondition(array.size(alerts) > 0, "双星形态警报", "发现双星形态")

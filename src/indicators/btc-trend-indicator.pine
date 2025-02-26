@@ -1,0 +1,19 @@
+//@version=5
+indicator("BTC Trend", overlay=false, precision=2)
+
+// 获取BTC价格
+btc_price = request.security("BTCUSDT", timeframe.period, close)
+
+// 将价格缩放到合适的范围显示
+scale_factor = input.float(0.01, "价格缩放因子", minval=0.0001, maxval=1, step=0.001)
+scaled_price = btc_price * scale_factor
+
+// 绘制价格走势线
+color_up = color.new(#26A69A, 0)  // 上涨颜色
+color_down = color.new(#EF5350, 0)  // 下跌颜色
+line_color = ta.change(scaled_price) >= 0 ? color_up : color_down
+plot(scaled_price, "BTC价格", color=line_color, linewidth=2, style=plot.style_line)
+
+// 警报条件
+alertcondition(ta.change(btc_price) > 0 and ta.change(btc_price)[1] <= 0, title='BTC转多', message='BTC价格开始上涨')
+alertcondition(ta.change(btc_price) < 0 and ta.change(btc_price)[1] >= 0, title='BTC转空', message='BTC价格开始下跌') 
